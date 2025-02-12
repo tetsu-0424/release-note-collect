@@ -1,6 +1,6 @@
 import * as fs from "fs";
-import { exec } from "child_process";
-import { promisify } from "util";
+import {exec} from "child_process";
+import {promisify} from "util";
 import * as cheerio from "cheerio"; // `cheerio` を追加
 import * as iconv from 'iconv-lite';
 // import { pullOutContents_Jtest, pullOutContents_Redhat, pullOutContents_Renorex, pullOutContents_Subversion } from "./logics/htmlPullOut";
@@ -24,7 +24,7 @@ const getFileLinkList = async (filePath: string): Promise<string[]> => {
 
 const fetchHtml = async (url: string) => {
     try {
-        const { stdout: html } = await execPromise(`curl -A "Mozilla/5.0" -L ${url}`, { maxBuffer: 1024 * 1024 * 10 });
+        const {stdout: html} = await execPromise(`curl -A "Mozilla/5.0" -L ${url}`, {maxBuffer: 1024 * 1024 * 10});
         // console.log(html);
         return html;
     } catch (error) {
@@ -35,7 +35,8 @@ const fetchHtml = async (url: string) => {
 
 const csvoutPut = async (appName: string, csv: string[]) => {
 
-    fs.writeFile(`./results/${appName}.csv`, iconv.encode(csv.join("\n"), 'SHIFT-JIS'), (err) => {
+    const escaped = csv.join("\n").replace(/\u00A0/g, " "); // ノーブレークスペースを通常のスペースに
+    fs.writeFile(`./results/${appName}.csv`, iconv.encode(escaped, 'SHIFT-JIS'), (err) => {
         if (err) {
             console.error('ファイル書き込み中にエラーが発生しました:', err);
         } else {
@@ -118,10 +119,20 @@ const execJavaSe = async () => {
 }
 
 
+const execSOAtest = async () => {
+    const filePath = "SOAtest";
+    const urlList = await getFileLinkList(filePath);
+    const contents = await Promise.all(
+        urlList.map(async url => {
+            const html = await fetchHtml(url);
+            return pullOutContents_SOAtest(url, html);
+        })
+    );
+    console.log("SOAtest");
+    csvoutPut(filePath, contents);
+}
 
 main();
-
-
 
 
 const pullOutContents_Redhat = (link: string, html: string) => {
@@ -147,7 +158,7 @@ const pullOutContents_Redhat = (link: string, html: string) => {
             if (!$(section).parent().hasClass("chapter")) return;
             const subTitle = $(section).find(".title").first().text();
             $(section).find(".formalpara").each((index, formalpara) => {
-               
+
                 let nowElement = $(formalpara).next();
                 let text = $(formalpara).text();
                 for (let i = 0; i < 100; i++) {
@@ -259,7 +270,7 @@ const pullOutContents_Redhat = (link: string, html: string) => {
         //     });
         // }
 
-        
+
         $(deprecated_functionality).find(".section").each((index, section) => {
             if (!$(section).parent().hasClass("chapter")) return;
             const subTitle = $(section).find(".title").first().text();
@@ -270,7 +281,7 @@ const pullOutContents_Redhat = (link: string, html: string) => {
     // $("#removed_functionality").each((_, removed_functionality) => {
     //     const title = $(removed_functionality).find(".title").first().text();
 
-        
+
     //     $(removed_functionality).find(".section").each((index, section) => {
     //         if (!$(section).parent().hasClass("chapter")) return;
     //         const subTitle = $(section).find(".title").first().text();
@@ -286,7 +297,6 @@ const pullOutContents_Redhat = (link: string, html: string) => {
             matchedElements.push(`"${link}","${version}","${escapeCSVField(title)}","${escapeCSVField(subTitle)}","","${escapeCSVField($(section).text().length > 30000 ? `${$(section).text().substring(0, 30000)}　続く` : $(section).text())}"`);
         });
     });
-
 
 
     return matchedElements.join("\n")
@@ -406,6 +416,7 @@ const pullOutContents_JavaSe = (link: string, html: string) => {
         }
     });
 
+
     // $('.release-note').each((index, element1) => {
     //     if(index === 0) title = $(element1).prev().first().text();
     //     // $(element1).find(".itemizedlist").first().find(".listitem").each((index,element2) => {
@@ -426,10 +437,81 @@ const pullOutContents_JavaSe = (link: string, html: string) => {
 
 }
 
+
+
+
+
+const pullOutContents_SOAtest = (link: string, html: string) => {
+
+    const resolveTextContent = (element: any) => {
+        let contentText = "";
+        $(element).nextUntil('h1, h2').each((_, el) => {
+            if ($(el).is('ul')) {
+                $(el).find('li').each((_, li) => {
+                    contentText += `  - ${$(li).text().trim()}\n`;
+                });
+            } else {
+                contentText += $(el).text().trim() + "\n";
+            }
+        });
+        return escapeCSVField(contentText);
+    }
+
+
+    // cheerio を使って HTML を解析
+    const $ = cheerio.load(html);
+    const csv: string[] = [];
+
+    const excludeH1Ids = ["title-text"]
+    const excludeH1Titles = ["Resolved Issues", "Resolved PRs and FRs", "Overview"]
+    let h2Skip = false
+    let h3Skip = false
+    let prevTag = ""
+
+
+    $('main').each((index, mainTag) => {
+        $(mainTag).find("h1, h2, h3").each((index, element) => {
+            if ($(element).is('h1')) {
+                const id = $(element).attr("id")
+                if ((id! && excludeH1Ids.includes(id)) || excludeH1Titles.includes($(element).text())) {
+                    h2Skip = true;
+                    h3Skip = true;
+                    return;
+                }
+                prevTag = "h1"
+                h2Skip = false;
+                h3Skip = false;
+                const title = replaceQuestion2WhiteSpace($(element).text());
+                csv.push(`"${link}","${title}","","","${resolveTextContent(element)}"`);
+            } else if (!h2Skip && $(element).is('h2')) {
+                prevTag = "h2"
+                const title = replaceQuestion2WhiteSpace($(element).text());
+                csv.push(`"${link}","","${title}","","${resolveTextContent(element)}"`);
+            } else if (!h3Skip && $(element).is('h3')) {
+                const title = replaceQuestion2WhiteSpace($(element).text());
+                if(prevTag = "h1"){
+                    csv.push(`"${link}","","${title}","","${resolveTextContent(element)}"`);
+                }else{
+                    csv.push(`"${link}","","","${title}","${resolveTextContent(element)}"`);
+                }
+                prevTag = "h3"
+            }
+
+        });
+    });
+    return csv.join("\n");
+
+}
+
+
+
+function replaceQuestion2WhiteSpace(field: string): string {
+    return field.replace("?", " ");
+}
+
 function escapeCSVField(field: string): string {
     // カンマ、ダブルクォーテーション、改行を含む場合はエスケープ
-
-    return field.replace(/"/g, '""').replace(/,/g, '"",""');
+    return field.replace(/"/g, '""').replace("?", " ") ;
 }
 
 const removeTag = (html: string): string => {
@@ -441,22 +523,21 @@ const removeTag = (html: string): string => {
         if (a.name !== "a") return;
         const html = $(a).toString();
         $(a).html(`ll${i}aTag${i}ll`);
-        aTag.push({ html, replace: `ll${i}aTag${i}ll` });
+        aTag.push({html, replace: `ll${i}aTag${i}ll`});
     });
     $('img').each((i, img) => {
         if (img.name !== "img") return;
         const html = $(img).toString();
         $(img).html(`ll${i}imgTag${i}ll`);
-        imgTag.push({ html, replace: `ll${i}imgTag${i}ll` });
+        imgTag.push({html, replace: `ll${i}imgTag${i}ll`});
     });
     $('table').each((i, table) => {
         if (table.name !== "table") return;
         const html = $(table).toString();
         $(table).html(`ll${i}tableTag${i}ll`);
-        tableTag.push({ html, replace: `ll${i}tableTag${i}ll` });
+        tableTag.push({html, replace: `ll${i}tableTag${i}ll`});
     });
     let text = cheerio.load($.html().replace(/&nbsp;/g, " ")).text()
-
 
 
     tableTag.forEach(v => {
@@ -493,7 +574,7 @@ const removeTag = (html: string): string => {
 
 // 実行
 async function main() {
-    execRedhat();
+    // execRedhat();
     // execPosgreSql();
     // execJavaSe();
     // execSubversion();
@@ -502,4 +583,5 @@ async function main() {
 
 
     // execRenorex();
+    execSOAtest();
 }
