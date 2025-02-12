@@ -1,0 +1,6 @@
+https://subversion.apache.org/docs/release-notes/1.9.html
+https://subversion.apache.org/docs/release-notes/1.10.html
+https://subversion.apache.org/docs/release-notes/1.11.html
+https://subversion.apache.org/docs/release-notes/1.12.html
+https://subversion.apache.org/docs/release-notes/1.13.html
+https://subversion.apache.org/docs/release-notes/1.14.html

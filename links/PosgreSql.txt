@@ -1,0 +1,15 @@
+https://www.postgresql.jp/docs/14/release-14-1.html
+https://www.postgresql.jp/docs/14/release-14-2.html
+https://www.postgresql.jp/docs/14/release-14-3.html
+https://www.postgresql.jp/docs/14/release-14-4.html
+https://www.postgresql.jp/docs/14/release-14-5.html
+https://www.postgresql.jp/docs/15/release-15.html
+https://www.postgresql.jp/docs/15/release-15-1.html
+https://www.postgresql.jp/docs/15/release-15-2.html
+https://www.postgresql.jp/docs/15/release-15-3.html
+https://www.postgresql.jp/docs/15/release-15-4.html
+https://www.postgresql.jp/docs/16/release-16.html
+https://www.postgresql.jp/docs/16/release-16-1.html
+https://www.postgresql.jp/docs/16/release-16-2.html
+https://www.postgresql.jp/docs/16/release-16-3.html
+https://www.postgresql.jp/docs/16/release-16-4.html
