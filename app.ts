@@ -438,9 +438,6 @@ const pullOutContents_JavaSe = (link: string, html: string) => {
 }
 
 
-
-
-
 const pullOutContents_SOAtest = (link: string, html: string) => {
 
     const resolveTextContent = (element: any) => {
@@ -449,6 +446,13 @@ const pullOutContents_SOAtest = (link: string, html: string) => {
             if ($(el).is('ul')) {
                 $(el).find('li').each((_, li) => {
                     contentText += `  - ${$(li).text().trim()}\n`;
+                });
+            } else if ($(el).is('div') && $(el).hasClass('table-wrap')) {
+                $(el).find('tr').each((_, tr) => {
+                    $(tr).find('th, td').each((_, thd) => {
+                        contentText += `| ${$(thd).text().trim()} `;
+                    });
+                    contentText += "|\n";
                 });
             } else {
                 contentText += $(el).text().trim() + "\n";
@@ -463,11 +467,10 @@ const pullOutContents_SOAtest = (link: string, html: string) => {
     const csv: string[] = [];
 
     const excludeH1Ids = ["title-text"]
-    const excludeH1Titles = ["Resolved Issues", "Resolved PRs and FRs", "Overview"]
+    const excludeH1Titles = ["Overview"]
     let h2Skip = false
     let h3Skip = false
     let prevTag = ""
-
 
     $('main').each((index, mainTag) => {
         $(mainTag).find("h1, h2, h3").each((index, element) => {
@@ -489,9 +492,9 @@ const pullOutContents_SOAtest = (link: string, html: string) => {
                 csv.push(`"${link}","","${title}","","${resolveTextContent(element)}"`);
             } else if (!h3Skip && $(element).is('h3')) {
                 const title = replaceQuestion2WhiteSpace($(element).text());
-                if(prevTag = "h1"){
+                if (prevTag = "h1") {
                     csv.push(`"${link}","","${title}","","${resolveTextContent(element)}"`);
-                }else{
+                } else {
                     csv.push(`"${link}","","","${title}","${resolveTextContent(element)}"`);
                 }
                 prevTag = "h3"
@@ -504,14 +507,13 @@ const pullOutContents_SOAtest = (link: string, html: string) => {
 }
 
 
-
 function replaceQuestion2WhiteSpace(field: string): string {
     return field.replace("?", " ");
 }
 
 function escapeCSVField(field: string): string {
     // カンマ、ダブルクォーテーション、改行を含む場合はエスケープ
-    return field.replace(/"/g, '""').replace("?", " ") ;
+    return field.replace(/"/g, '""').replace("?", " ");
 }
 
 const removeTag = (html: string): string => {
