@@ -3,6 +3,7 @@ import {exec} from "child_process";
 import {promisify} from "util";
 import * as cheerio from "cheerio"; // `cheerio` を追加
 import * as iconv from 'iconv-lite';
+import {Cheerio, CheerioAPI} from "cheerio";
 // import { pullOutContents_Jtest, pullOutContents_Redhat, pullOutContents_Renorex, pullOutContents_Subversion } from "./logics/htmlPullOut";
 
 
@@ -114,7 +115,8 @@ const execJavaSe = async () => {
             return pullOutContents_JavaSe(url, html);
         })
     );
-    console.log("PosgreSql");
+    console.log("JavaSe");
+    contents.unshift(["URL", "階層１", "階層２", "階層３", "原文"].join(","));
     csvoutPut(filePath, contents);
 }
 
@@ -396,45 +398,179 @@ const pullOutContents_PosgreSql = (link: string, html: string) => {
 const pullOutContents_JavaSe = (link: string, html: string) => {
     // cheerio を使って HTML を解析
     const $ = cheerio.load(html);
-    const csv: string[] = [];
-    $('h4').each((index, element1) => {
-        const title = $(element1).text();
-        if (title === 'Bug Fixes') {
-            csv.push(`"${link}","${title}","${escapeCSVField($(element1).next().text())}"`);
+    const csv: string[][] = [];
 
-        }
+    const javaVersionTitle = "Java™ SE Development Kit"
+    const excludeTitles = ["Introduction", "Release Notes", "JRE Expiration Date"]
 
-        let nowElement = $(element1);
-        for (let i = 0; i < 100; i++) {
-            if (nowElement.next().hasClass("release-note")) {
-                csv.push(`"${link}","${title}","${escapeCSVField(nowElement.next().text())}"`);
-            }
-            nowElement = nowElement.next();
-            if (nowElement.get(0)?.name == "h4") {
-                break;
-            }
-        }
+    const selector = ["h2", "h3", "h4", ".arrow"];
+    const selectorStr = selector.join(", ");
+    const $target = $(selectorStr);
+
+    if (!$target || $target.length === 0) {
+        throw new Error("no main content")
+    }
+
+    $target.each((_, element) => {
+        process($, element, csv, excludeTitles, selector, javaVersionTitle, link)
     });
+    return csv.map(record => `"${record.join("\",\"")}"`.replace("™", " TM")).join("\n");
+
+}
+
+const process = ($: CheerioAPI, element: any, csv: string[][], excludeTitles:string[], selector:string[], javaVersionTitle:string, link:string) => {
+    removeEndStringIfArrow($, element, csv)
+    const title = ($(element).is(".arrow") || isNoClassArrow($, element))
+        ? getPrevText($, element) + "\n→ " + $(getNextArrow($, element)).text()
+        : replaceQuestion2WhiteSpace($(element).text());
+    if (excludeTitles.find(v => title.includes(v))) {
+        return
+    }
+    let textTmp: string = ""
+    let noClassArrow: boolean = false;
+    let findElem = null;
+    [findElem, textTmp, noClassArrow] = nextUntilAll(selector, 0, $, getTextElement($, element), "")
+    if (title.includes(javaVersionTitle)) {
+        csv.push([link, escapeCsv(title), "", "", ""]);
+    } else if ($(element).is("h2")) {
+        csv.push([link, "", escapeCsv(title), "", escapeCsv(textTmp)]);
+    } else if ($(element).is("h3")) {
+        csv.push([link, "", escapeCsv(title), "", escapeCsv(textTmp)]);
+    } else if ($(element).is("h4")) {
+        csv.push([link, "", escapeCsv(title), "", escapeCsv(textTmp)]);
+    } else if ($(element).is(".arrow")) {
+        csv.push([link, "", "", escapeCsv(title), escapeCsv(textTmp)]);
+    } else if (isNoClassArrow($, element)) {
+        csv.push([link, "", "", escapeCsv(title), escapeCsv(textTmp)]);
+    }
+
+    if(findElem && noClassArrow){
+        process($, findElem, csv, excludeTitles, selector, javaVersionTitle, link)
+    }
+}
+
+const escapeCsv = (text: string) => text.trim().replace(/"/g, '""');
 
 
-    // $('.release-note').each((index, element1) => {
-    //     if(index === 0) title = $(element1).prev().first().text();
-    //     // $(element1).find(".itemizedlist").first().find(".listitem").each((index,element2) => {
-    //         // const title = $(element2).parent().parent().parent().find(".title").first().text();
-    //         // if(title.includes)
-    //         csv.push(`"${link}","${title}","${escapeCSVField($(element1).text())}"`);
-    //     // })
-    //     // $(element1).find(".sect3").first().find(".listitem").each((index,element2) => {
-    //     //     csv.push(`"${link}","${$(element2).text()}"`);
-    //     // })
-    //     // $(element1).find(".sect4").first().find(".listitem").each((index,element2) => {
-    //     //     csv.push(`"${link}","${$(element2).text()}"`);
-    //     // })
+const removeEndStringIfArrow = ($: CheerioAPI, element: any, csv: string[][]) => {
+    if ($(element).is(".arrow") || isNoClassArrow($, element)) {
+        const libString = getPrevText($, element).trim()
+        const lastRecord = csv[csv.length - 1]
+        const text = lastRecord[lastRecord.length - 1]
+        if (text.trim().endsWith(libString)) {
+            lastRecord[lastRecord.length - 1] = text.trim().slice(0, -libString.length).trim()
+        }
+    }
+}
 
-    // })
+const getTextElement = ($: CheerioAPI, element: any) => {
+    const getNext = (e: any): any | null => {
+        if (!e) return null; // nullチェックを追加
+        return e.next ?? getNext(e.parent);
+    };
 
-    return csv.join("\n");
+    return ($(element).is(".arrow") || isNoClassArrow($, element))
+        ? getNext(getNextArrow($, element))
+        : getNext(element);
+}
 
+const getPrevText = ($: CheerioAPI, e: any): any | null => {
+    if (e.prev && $(e.prev).text().trim() !== "") return $(e.prev).text()
+    if (e.prev) return getPrevText($, e.prev);
+    const getParentPrev = (e2: any): any | null => {
+        if (!e2) throw Error("no parent")
+        return e2.prev ? e2 : getParentPrev(e2.parent)
+    }
+    return getPrevText($, getParentPrev(e.parent));
+}
+const getNextArrow = ($: CheerioAPI, e: any): any | null => {
+    if (e.next && $(e.next).text().trim() !== "") return e.next
+    if (e.next) return getNextArrow($, e.next);
+    const getParentNext = (e2: any): any | null => {
+        if (!e2) throw Error("no parent")
+        return e2.next ? e2 : getParentNext(e2.parent)
+    }
+    return getNextArrow($, getParentNext(e.parent));
+}
+
+const nextUntilAll = (selector: string[], nestIdx: number, $: CheerioAPI, element: any, text: string) => {
+    let findElem = null
+    let noClassArrow = false
+    let textTmp = text;
+    [findElem, textTmp, noClassArrow] = nextUntilFlat(selector, nestIdx, $, element, textTmp)
+    if (!findElem && element.parent && element.parent.next) {
+        [findElem, textTmp, noClassArrow] = nextUntilFlat(selector, nestIdx, $, element.parent.next, textTmp)
+    }
+    return [findElem, textTmp, noClassArrow]
+}
+
+const nextUntilFlat = (selector: string[], nestIdx: number, $: CheerioAPI, element: any, text: string) => {
+    let findElem = null
+    let noClassArrow = false
+    let textTmp = text;
+    [findElem, textTmp, noClassArrow] = nextUntilChildren(selector, nestIdx, $, element, textTmp)
+    if (!findElem && element.next) {
+        [findElem, textTmp, noClassArrow] = nextUntilFlat(selector, nestIdx, $, element.next, textTmp)
+    }
+    return [findElem, textTmp, noClassArrow]
+}
+
+const isNoClassArrow = ($: CheerioAPI, element: any) => element.name === "a" 
+&& (($(element).text() === "➜" && $(element).contents()[0].type === "text") 
+|| ($(element).text() === "" && $(element).attr("href")?.startsWith("#JDK-")))
+&& !$(element).hasClass("arrow")
+
+const nextUntilChildren = (selector: string[], nestIdx: number, $: CheerioAPI, element: any, text: string) => {
+    let findElem = null
+    let noClassArrow = false
+    let textTmp = ""
+    const lineBreakTags = ["div", "p"]
+
+    if (element.type === "text") {
+        if ($(element).text().trim() !== "") {
+            const getHasNext = (e: any): any | null => {
+                if (!e) return null; // nullチェックを追加
+                return e.next ? e : getHasNext(e.parent);
+            };
+            if (lineBreakTags.includes(getHasNext(element).name)) {
+                textTmp += $(element).text().trim() + "\n";
+            } else {
+                textTmp += $(element).text().trim() + " ";
+            }
+        }
+    } else if (element.type === "tag") {
+        if (selector.find(v => $(element).is(v))) {
+            findElem = element;
+        } else if (isNoClassArrow($, element)) {
+            findElem = element;
+            noClassArrow = true;
+        } else if ($(element).is('ul')) {
+            // TODO ul in ulだと２重で出力されるのでできるなら直したい
+            $(element).find('li').each((_, li) => {
+                textTmp += `  - ${$(li).text().trim()}\n`;
+            });
+        } else if ($(element).is("table")) {
+            $(element).find('tr').each((_, tr) => {
+                $(tr).find('th, td').each((_, thd) => {
+                    textTmp += `| ${$(thd).text().trim()} `;
+                });
+                textTmp += "|\n";
+            });
+        } else {
+            $(element).contents().each((idx, child) => {
+                if (findElem) return;
+                [findElem, textTmp, noClassArrow] = nextUntilChildren(selector, nestIdx, $, child, textTmp);
+            });
+        }
+    } else {
+        const ignoreTypes = ["comment"]
+        if (!ignoreTypes.includes(element.type)) {
+            throw Error("unknown type:" + element.type);
+        }
+    }
+
+
+    return [findElem, text + escapeCSVField(textTmp), noClassArrow]
 }
 
 
@@ -478,7 +614,7 @@ const pullOutContents_SOAtest = (link: string, html: string) => {
         throw new Error("no main content")
     }
 
-    $target .each((index, mainTag) => {
+    $target.each((index, mainTag) => {
         $(mainTag).find("h1, h2, h3").each((index, element) => {
             if ($(element).is('h1')) {
                 const id = $(element).attr("id")
@@ -518,8 +654,9 @@ function replaceQuestion2WhiteSpace(field: string): string {
 }
 
 function escapeCSVField(field: string): string {
+    return field;
     // カンマ、ダブルクォーテーション、改行を含む場合はエスケープ
-    return field.replace(/"/g, '""').replace("?", " ");
+    // return field.replace(/"/g, '""').replace("?", " ");
 }
 
 const removeTag = (html: string): string => {
@@ -584,12 +721,12 @@ const removeTag = (html: string): string => {
 async function main() {
     // execRedhat();
     // execPosgreSql();
-    // execJavaSe();
+    execJavaSe();
     // execSubversion();
 
     // execJtest();
 
 
     // execRenorex();
-    execSOAtest();
+    // execSOAtest();
 }
