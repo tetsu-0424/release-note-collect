@@ -472,7 +472,13 @@ const pullOutContents_SOAtest = (link: string, html: string) => {
     let h3Skip = false
     let prevTag = ""
 
-    $('main').each((index, mainTag) => {
+    const $target = $('#main-content');
+
+    if (!$target || $target.length === 0) {
+        throw new Error("no main content")
+    }
+
+    $target .each((index, mainTag) => {
         $(mainTag).find("h1, h2, h3").each((index, element) => {
             if ($(element).is('h1')) {
                 const id = $(element).attr("id")
